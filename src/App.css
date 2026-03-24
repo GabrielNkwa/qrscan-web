@@ -1,0 +1,8 @@
+@reference "tailwindcss";
+
+/* Global Tailwind Overrides */
+@layer base {
+  body {
+    @apply bg-pink-50 text-gray-900;
+  }
+}
