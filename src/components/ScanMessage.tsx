@@ -92,7 +92,14 @@ export default function ScanMessage() {
       if (decodedText.includes('/message/')) {
         try {
           const url = new URL(decodedText);
-          const parts = url.pathname.split('/');
+          let path = url.pathname;
+          
+          // Support for HashRouter (URL contains #/message/...)
+          if (url.hash && url.hash.includes('/message/')) {
+            path = url.hash.replace('#', '');
+          }
+
+          const parts = path.split('/');
           // Path format is /message/:uid/:id
           const messageIdx = parts.indexOf('message');
           if (messageIdx !== -1 && parts.length >= messageIdx + 3) {

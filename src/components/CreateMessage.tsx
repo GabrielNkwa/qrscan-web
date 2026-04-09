@@ -73,7 +73,8 @@ export default function CreateMessage() {
       }
 
       // Instead of JSON, we encode the full URL for better camera scanner compatibility
-      const url = `${window.location.origin}/message/${user.uid}/${id}`;
+      // Using HashRouter for better server compatibility and to avoid 404 errors on deep links
+      const url = `${window.location.origin}/#/message/${user.uid}/${id}`;
       
       setQrData(url);
       setMessageId(id);

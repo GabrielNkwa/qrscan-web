@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { MessagesProvider } from './context/MessagesContext';
 import CreateMessage from './components/CreateMessage';
@@ -10,10 +10,15 @@ import { Heart, ScanLine, PlusCircle, LogOut, History } from 'lucide-react';
 import './App.css';
 
 function Navigation() {
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const location = useLocation();
   
   const isActive = (path: string) => location.pathname === path;
+
+  // Don't show navigation for anonymous users unless they are scanning
+  if (!user && !location.pathname.startsWith('/message/')) {
+    return null;
+  }
 
   return (
     <>
@@ -42,22 +47,26 @@ function Navigation() {
             <ScanLine size={20} />
             <span>Scan</span>
           </Link>
-          <Link 
-            to="/history" 
-            className={`flex items-center gap-2 font-medium transition-colors ${
-              isActive('/history') ? 'text-pink-600' : 'text-gray-500 hover:text-pink-600'
-            }`}
-          >
-            <History size={20} />
-            <span>History</span>
-          </Link>
-          <button 
-            onClick={() => signOut()}
-            className="flex items-center gap-2 text-gray-400 hover:text-pink-600 font-medium transition-colors"
-          >
-            <LogOut size={20} />
-            <span>Logout</span>
-          </button>
+          {user && (
+            <>
+              <Link 
+                to="/history" 
+                className={`flex items-center gap-2 font-medium transition-colors ${
+                  isActive('/history') ? 'text-pink-600' : 'text-gray-500 hover:text-pink-600'
+                }`}
+              >
+                <History size={20} />
+                <span>History</span>
+              </Link>
+              <button 
+                onClick={() => signOut()}
+                className="flex items-center gap-2 text-gray-400 hover:text-pink-600 font-medium transition-colors"
+              >
+                <LogOut size={20} />
+                <span>Logout</span>
+              </button>
+            </>
+          )}
         </nav>
       </header>
 
@@ -81,22 +90,26 @@ function Navigation() {
           <ScanLine size={24} />
           <span className="text-[10px] font-bold uppercase tracking-wider">Scan</span>
         </Link>
-        <Link 
-          to="/history" 
-          className={`flex flex-col items-center gap-1 transition-colors ${
-            isActive('/history') ? 'text-pink-600' : 'text-gray-400'
-          }`}
-        >
-          <History size={24} />
-          <span className="text-[10px] font-bold uppercase tracking-wider">History</span>
-        </Link>
-        <button 
-          onClick={() => signOut()}
-          className="flex flex-col items-center gap-1 text-gray-400 transition-colors"
-        >
-          <LogOut size={24} />
-          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Logout</span>
-        </button>
+        {user && (
+          <>
+            <Link 
+              to="/history" 
+              className={`flex flex-col items-center gap-1 transition-colors ${
+                isActive('/history') ? 'text-pink-600' : 'text-gray-400'
+              }`}
+            >
+              <History size={24} />
+              <span className="text-[10px] font-bold uppercase tracking-wider">History</span>
+            </Link>
+            <button 
+              onClick={() => signOut()}
+              className="flex flex-col items-center gap-1 text-gray-400 transition-colors"
+            >
+              <LogOut size={24} />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Logout</span>
+            </button>
+          </>
+        )}
       </nav>
 
       {/* Mobile Header (Brand only) */}
@@ -122,14 +135,6 @@ function AppContent() {
     );
   }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-pink-50 flex items-center justify-center p-6">
-        <Login />
-      </div>
-    );
-  }
-
   return (
     <Router>
       <div className="min-h-screen bg-pink-50 flex flex-col pb-20 sm:pb-0">
@@ -139,10 +144,16 @@ function AppContent() {
         <main className="flex-1 flex items-start sm:items-center justify-center p-4 sm:p-6 pt-6 sm:pt-0">
           <div className="w-full max-w-4xl">
             <Routes>
-              <Route path="/" element={<CreateMessage />} />
-              <Route path="/scan" element={<ScanMessage />} />
-              <Route path="/history" element={<MessagesList />} />
+              {/* Public Routes */}
               <Route path="/message/:uid/:id" element={<ScanMessage />} />
+              <Route path="/scan" element={<ScanMessage />} />
+              
+              {/* Protected Routes */}
+              <Route path="/" element={user ? <CreateMessage /> : <Login />} />
+              <Route path="/history" element={user ? <MessagesList /> : <Login />} />
+              
+              {/* Fallback */}
+              <Route path="*" element={user ? <CreateMessage /> : <Login />} />
             </Routes>
           </div>
         </main>
