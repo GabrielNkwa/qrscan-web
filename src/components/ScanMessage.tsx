@@ -23,6 +23,10 @@ export default function ScanMessage() {
   const [showMessage, setShowMessage] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  
+  // Use refs for state that need to be accessed in the scan callbacks without stale closures
+  const isScanningRef = useRef(false);
+  const isProcessingRef = useRef(false);
 
   const fetchMessage = useCallback(async (userId: string, messageId: string) => {
     setIsLoading(true);
@@ -50,79 +54,10 @@ export default function ScanMessage() {
     }
   }, []);
 
-  useEffect(() => {
-    if (uid && id) {
-      fetchMessage(uid, id);
-    }
-  }, [uid, id, fetchMessage]);
-
-  useEffect(() => {
-    let html5QrCode: Html5Qrcode | null = null;
-    let isMounted = true;
-
-    if (!showMessage && !scanned && !uid && !id) {
-      html5QrCode = new Html5Qrcode("reader");
-      scannerRef.current = html5QrCode;
-
-      const config = { 
-        fps: 10, 
-        qrbox: { width: 250, height: 250 },
-        formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
-      };
-
-      // Automatically start with the back camera (environment)
-      html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        onScanSuccess,
-        onScanFailure
-      ).then(() => {
-        if (isMounted) setIsCameraReady(true);
-      }).catch(err => {
-        console.error("Failed to start scanner:", err);
-        // If back camera fails, try any camera
-        if (isMounted) {
-          html5QrCode?.start(
-            { facingMode: "user" },
-            config,
-            onScanSuccess,
-            onScanFailure
-          ).then(() => {
-            if (isMounted) setIsCameraReady(true);
-          }).catch(e => {
-            console.error("Failed to start any camera:", e);
-          });
-        }
-      });
-    }
-
-    return () => {
-      isMounted = false;
-      const scanner = scannerRef.current;
-      if (scanner) {
-        if (scanner.isScanning) {
-          scanner.stop().then(() => {
-            try {
-              scanner.clear();
-            } catch (e) {
-              // Ignore clear errors during unmount
-            }
-          }).catch(err => console.error("Failed to stop scanner", err));
-        } else {
-          try {
-            scanner.clear();
-          } catch (e) {
-            // Ignore clear errors
-          }
-        }
-      }
-      setIsCameraReady(false);
-    };
-  }, [showMessage, scanned, uid, id]);
-
-  const onScanSuccess = async (decodedText: string) => {
-    if (scanned || isLoading) return;
+  const onScanSuccess = useCallback(async (decodedText: string) => {
+    if (isProcessingRef.current) return;
     
+    isProcessingRef.current = true;
     setScanned(true);
     setIsLoading(true);
 
@@ -179,29 +114,116 @@ export default function ScanMessage() {
             createdAt: data.createdAt?.toMillis() || Date.now(),
           });
           setShowMessage(true);
-          // Scanner cleanup will be handled by the useEffect dependency change
+          // Scanner will be stopped by the useEffect dependency change
         } else {
           alert('This message could not be found.');
           setScanned(false);
+          isProcessingRef.current = false;
         }
       } else {
         alert('Invalid QR Code. This QR code is not a Love QR message.');
         setScanned(false);
+        isProcessingRef.current = false;
       }
     } catch (error: any) {
       console.error('Error scanning QR:', error);
       alert('Failed to read QR code. Please try again.');
       setScanned(false);
+      isProcessingRef.current = false;
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const onScanFailure = (_error: any) => {
+  const onScanFailure = useCallback((_error: any) => {
     // console.warn(`Code scan error = ${_error}`);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (uid && id) {
+      fetchMessage(uid, id);
+    }
+  }, [uid, id, fetchMessage]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let html5QrCode: Html5Qrcode | null = null;
+
+    const startScanner = async () => {
+      // Don't start if already scanning or if we should show a message
+      if (isScanningRef.current || showMessage || scanned || uid || id) return;
+
+      try {
+        const readerElement = document.getElementById("reader");
+        if (!readerElement) return;
+
+        html5QrCode = new Html5Qrcode("reader");
+        scannerRef.current = html5QrCode;
+        isScanningRef.current = true;
+
+        const config = { 
+          fps: 10, 
+          qrbox: { width: 250, height: 250 },
+          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+        };
+
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          config,
+          onScanSuccess,
+          onScanFailure
+        );
+
+        if (isMounted) setIsCameraReady(true);
+      } catch (err) {
+        console.error("Failed to start back camera:", err);
+        if (isMounted && html5QrCode) {
+          try {
+            await html5QrCode.start(
+              { facingMode: "user" },
+              { 
+                fps: 10, 
+                qrbox: { width: 250, height: 250 },
+                formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+              },
+              onScanSuccess,
+              onScanFailure
+            );
+            if (isMounted) setIsCameraReady(true);
+          } catch (e) {
+            console.error("Failed to start any camera:", e);
+            isScanningRef.current = false;
+          }
+        } else {
+          isScanningRef.current = false;
+        }
+      }
+    };
+
+    startScanner();
+
+    return () => {
+      isMounted = false;
+      const scanner = scannerRef.current;
+      if (scanner && isScanningRef.current) {
+        isScanningRef.current = false;
+        setIsCameraReady(false);
+        
+        // Use a small timeout to let React finish DOM updates if needed
+        // but mostly we just need to ensure stop() is called.
+        scanner.stop()
+          .then(() => {
+            try {
+              scanner.clear();
+            } catch (e) { /* ignore */ }
+          })
+          .catch(err => console.error("Error stopping scanner during cleanup:", err));
+      }
+    };
+  }, [showMessage, scanned, uid, id, onScanSuccess, onScanFailure]);
 
   const resetScanner = () => {
+    isProcessingRef.current = false;
     setScanned(false);
     setMessage(null);
     setShowMessage(false);
