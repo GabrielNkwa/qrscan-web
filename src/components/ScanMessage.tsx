@@ -85,18 +85,40 @@ export default function ScanMessage() {
     setIsLoading(true);
 
     try {
-      let parsed;
-      try {
-        parsed = JSON.parse(decodedText);
-      } catch (e) {
-        alert('Invalid QR Code. This QR code is not a Love QR message.');
-        setScanned(false);
-        setIsLoading(false);
-        return;
+      let parsedId: string | undefined;
+      let parsedUid: string | undefined;
+
+      // Try to parse as URL first
+      if (decodedText.includes('/message/')) {
+        try {
+          const url = new URL(decodedText);
+          const parts = url.pathname.split('/');
+          // Path format is /message/:uid/:id
+          const messageIdx = parts.indexOf('message');
+          if (messageIdx !== -1 && parts.length >= messageIdx + 3) {
+            parsedUid = parts[messageIdx + 1];
+            parsedId = parts[messageIdx + 2];
+          }
+        } catch (e) {
+          console.error('Error parsing QR URL:', e);
+        }
+      }
+
+      // If not a URL or parsing failed, try JSON (backward compatibility)
+      if (!parsedId || !parsedUid) {
+        try {
+          const parsed = JSON.parse(decodedText);
+          if (parsed && parsed.type === 'loveqr_message') {
+            parsedId = parsed.id;
+            parsedUid = parsed.uid;
+          }
+        } catch (e) {
+          // Not JSON either
+        }
       }
       
-      if (parsed && parsed.type === 'loveqr_message' && parsed.id && parsed.uid) {
-        const msgDoc = await getDoc(doc(db, 'users', parsed.uid, 'messages', parsed.id));
+      if (parsedId && parsedUid) {
+        const msgDoc = await getDoc(doc(db, 'users', parsedUid, 'messages', parsedId));
         if (msgDoc.exists()) {
           const data = msgDoc.data();
           setMessage({

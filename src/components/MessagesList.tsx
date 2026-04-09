@@ -238,11 +238,7 @@ export default function MessagesList() {
 
               <div className="bg-pink-50 p-4 rounded-2xl inline-block mb-6">
                 <QRCodeSVG 
-                  value={JSON.stringify({
-                    id: selectedQrMessage.id,
-                    uid: user?.uid,
-                    type: 'loveqr_message',
-                  })} 
+                  value={`${window.location.origin}/message/${user?.uid}/${selectedQrMessage.id}`} 
                   size={200}
                   level="H"
                   includeMargin={true}

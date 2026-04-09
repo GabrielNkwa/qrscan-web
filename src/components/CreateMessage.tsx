@@ -72,13 +72,10 @@ export default function CreateMessage() {
         return;
       }
 
-      const data = JSON.stringify({
-        id: id,
-        uid: user.uid,
-        type: 'loveqr_message',
-      });
+      // Instead of JSON, we encode the full URL for better camera scanner compatibility
+      const url = `${window.location.origin}/message/${user.uid}/${id}`;
       
-      setQrData(data);
+      setQrData(url);
       setMessageId(id);
     } catch (error) {
       console.error('Error generating QR:', error);
