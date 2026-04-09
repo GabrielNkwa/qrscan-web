@@ -157,14 +157,16 @@ export default function ScanMessage() {
         const readerElement = document.getElementById("reader");
         if (!readerElement) return;
 
-        html5QrCode = new Html5Qrcode("reader");
+        html5QrCode = new Html5Qrcode("reader", { 
+          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
+          verbose: false
+        });
         scannerRef.current = html5QrCode;
         isScanningRef.current = true;
 
         const config = { 
           fps: 10, 
           qrbox: { width: 250, height: 250 },
-          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
         };
 
         await html5QrCode.start(
@@ -184,7 +186,6 @@ export default function ScanMessage() {
               { 
                 fps: 10, 
                 qrbox: { width: 250, height: 250 },
-                formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
               },
               onScanSuccess,
               onScanFailure
