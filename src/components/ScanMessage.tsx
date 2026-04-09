@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../constants/firebase';
-import { Heart, ScanLine, X, Sparkles, Mic, Video, Loader2 } from 'lucide-react';
+import { Heart, ScanLine, X, Sparkles, Mic, Video, Loader2, Camera } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface ScannedMessage {
@@ -21,7 +21,8 @@ export default function ScanMessage() {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<ScannedMessage | null>(null);
   const [showMessage, setShowMessage] = useState(false);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const fetchMessage = useCallback(async (userId: string, messageId: string) => {
     setIsLoading(true);
@@ -56,27 +57,50 @@ export default function ScanMessage() {
   }, [uid, id, fetchMessage]);
 
   useEffect(() => {
+    let html5QrCode: Html5Qrcode | null = null;
+
     if (!showMessage && !scanned && !uid && !id) {
-      const scanner = new Html5QrcodeScanner(
-        "reader",
-        { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
-          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
-        },
-        /* verbose= */ false
-      );
-      
-      scanner.render(onScanSuccess, onScanFailure);
-      scannerRef.current = scanner;
+      html5QrCode = new Html5Qrcode("reader");
+      scannerRef.current = html5QrCode;
+
+      const config = { 
+        fps: 10, 
+        qrbox: { width: 250, height: 250 },
+        formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+      };
+
+      // Automatically start with the back camera (environment)
+      html5QrCode.start(
+        { facingMode: "environment" },
+        config,
+        onScanSuccess,
+        onScanFailure
+      ).then(() => {
+        setIsCameraReady(true);
+      }).catch(err => {
+        console.error("Failed to start scanner:", err);
+        // If back camera fails, try any camera
+        html5QrCode?.start(
+          { facingMode: "user" },
+          config,
+          onScanSuccess,
+          onScanFailure
+        ).then(() => {
+          setIsCameraReady(true);
+        }).catch(e => {
+          console.error("Failed to start any camera:", e);
+        });
+      });
     }
 
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(err => console.error("Failed to clear scanner", err));
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().then(() => {
+          scannerRef.current?.clear();
+        }).catch(err => console.error("Failed to stop scanner", err));
       }
     };
-  }, [showMessage, scanned]);
+  }, [showMessage, scanned, uid, id]);
 
   const onScanSuccess = async (decodedText: string) => {
     if (scanned || isLoading) return;
@@ -137,8 +161,10 @@ export default function ScanMessage() {
             createdAt: data.createdAt?.toMillis() || Date.now(),
           });
           setShowMessage(true);
-          if (scannerRef.current) {
-            scannerRef.current.clear();
+          if (scannerRef.current && scannerRef.current.isScanning) {
+            scannerRef.current.stop().then(() => {
+              scannerRef.current?.clear();
+            }).catch(err => console.error("Failed to stop scanner", err));
           }
         } else {
           alert('This message could not be found.');
@@ -245,7 +271,14 @@ export default function ScanMessage() {
       </div>
 
       <div className="relative group">
-        <div id="reader" className="w-full rounded-2xl overflow-hidden border-2 border-pink-100 bg-gray-50 aspect-square sm:aspect-auto"></div>
+        <div id="reader" className="w-full rounded-2xl overflow-hidden border-2 border-pink-100 bg-gray-50 aspect-square sm:aspect-auto">
+          {!isCameraReady && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10 gap-3">
+              <Camera className="text-pink-300 animate-pulse" size={48} />
+              <p className="text-xs text-gray-400 font-medium">Starting camera...</p>
+            </div>
+          )}
+        </div>
         <div className="absolute inset-0 pointer-events-none border-[20px] sm:border-[40px] border-black/10 rounded-2xl transition-opacity group-hover:opacity-0"></div>
       </div>
       
