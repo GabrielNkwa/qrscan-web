@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../constants/firebase';
-import { Heart, ScanLine, X, Sparkles, Mic, Video, Loader2, Camera } from 'lucide-react';
+import { Heart, ScanLine, X, Sparkles, Mic, Video, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface ScannedMessage {
@@ -21,12 +21,7 @@ export default function ScanMessage() {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<ScannedMessage | null>(null);
   const [showMessage, setShowMessage] = useState(false);
-  const [isCameraReady, setIsCameraReady] = useState(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  
-  // Use refs for state that need to be accessed in the scan callbacks without stale closures
-  const isScanningRef = useRef(false);
-  const isProcessingRef = useRef(false);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
   const fetchMessage = useCallback(async (userId: string, messageId: string) => {
     setIsLoading(true);
@@ -54,10 +49,38 @@ export default function ScanMessage() {
     }
   }, []);
 
-  const onScanSuccess = useCallback(async (decodedText: string) => {
-    if (isProcessingRef.current) return;
+  useEffect(() => {
+    if (uid && id) {
+      fetchMessage(uid, id);
+    }
+  }, [uid, id, fetchMessage]);
+
+  useEffect(() => {
+    if (!showMessage && !scanned && !uid && !id) {
+      const scanner = new Html5QrcodeScanner(
+        "reader",
+        { 
+          fps: 10, 
+          qrbox: { width: 250, height: 250 },
+          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+        },
+        /* verbose= */ false
+      );
+      
+      scanner.render(onScanSuccess, onScanFailure);
+      scannerRef.current = scanner;
+    }
+
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(err => console.error("Failed to clear scanner", err));
+      }
+    };
+  }, [showMessage, scanned]);
+
+  const onScanSuccess = async (decodedText: string) => {
+    if (scanned || isLoading) return;
     
-    isProcessingRef.current = true;
     setScanned(true);
     setIsLoading(true);
 
@@ -114,117 +137,31 @@ export default function ScanMessage() {
             createdAt: data.createdAt?.toMillis() || Date.now(),
           });
           setShowMessage(true);
-          // Scanner will be stopped by the useEffect dependency change
+          if (scannerRef.current) {
+            scannerRef.current.clear();
+          }
         } else {
           alert('This message could not be found.');
           setScanned(false);
-          isProcessingRef.current = false;
         }
       } else {
         alert('Invalid QR Code. This QR code is not a Love QR message.');
         setScanned(false);
-        isProcessingRef.current = false;
       }
     } catch (error: any) {
       console.error('Error scanning QR:', error);
       alert('Failed to read QR code. Please try again.');
       setScanned(false);
-      isProcessingRef.current = false;
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  };
 
-  const onScanFailure = useCallback((_error: any) => {
+  const onScanFailure = (_error: any) => {
     // console.warn(`Code scan error = ${_error}`);
-  }, []);
-
-  useEffect(() => {
-    if (uid && id) {
-      fetchMessage(uid, id);
-    }
-  }, [uid, id, fetchMessage]);
-
-  useEffect(() => {
-    let isMounted = true;
-    let html5QrCode: Html5Qrcode | null = null;
-
-    const startScanner = async () => {
-      // Don't start if already scanning or if we should show a message
-      if (isScanningRef.current || showMessage || scanned || uid || id) return;
-
-      try {
-        const readerElement = document.getElementById("reader");
-        if (!readerElement) return;
-
-        html5QrCode = new Html5Qrcode("reader", { 
-          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
-          verbose: false
-        });
-        scannerRef.current = html5QrCode;
-        isScanningRef.current = true;
-
-        const config = { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
-        };
-
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          config,
-          onScanSuccess,
-          onScanFailure
-        );
-
-        if (isMounted) setIsCameraReady(true);
-      } catch (err) {
-        console.error("Failed to start back camera:", err);
-        if (isMounted && html5QrCode) {
-          try {
-            await html5QrCode.start(
-              { facingMode: "user" },
-              { 
-                fps: 10, 
-                qrbox: { width: 250, height: 250 },
-              },
-              onScanSuccess,
-              onScanFailure
-            );
-            if (isMounted) setIsCameraReady(true);
-          } catch (e) {
-            console.error("Failed to start any camera:", e);
-            isScanningRef.current = false;
-          }
-        } else {
-          isScanningRef.current = false;
-        }
-      }
-    };
-
-    startScanner();
-
-    return () => {
-      isMounted = false;
-      const scanner = scannerRef.current;
-      if (scanner && isScanningRef.current) {
-        isScanningRef.current = false;
-        setIsCameraReady(false);
-        
-        // Use a small timeout to let React finish DOM updates if needed
-        // but mostly we just need to ensure stop() is called.
-        scanner.stop()
-          .then(() => {
-            try {
-              scanner.clear();
-            } catch (e) { /* ignore */ }
-          })
-          .catch(err => console.error("Error stopping scanner during cleanup:", err));
-      }
-    };
-  }, [showMessage, scanned, uid, id, onScanSuccess, onScanFailure]);
+  };
 
   const resetScanner = () => {
-    isProcessingRef.current = false;
     setScanned(false);
     setMessage(null);
     setShowMessage(false);
@@ -309,12 +246,6 @@ export default function ScanMessage() {
 
       <div className="relative group">
         <div id="reader" className="w-full rounded-2xl overflow-hidden border-2 border-pink-100 bg-gray-50 aspect-square sm:aspect-auto"></div>
-        {!isCameraReady && !showMessage && !scanned && !uid && !id && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 rounded-2xl z-10 gap-3">
-            <Camera className="text-pink-300 animate-pulse" size={48} />
-            <p className="text-xs text-gray-400 font-medium">Starting camera...</p>
-          </div>
-        )}
         <div className="absolute inset-0 pointer-events-none border-[20px] sm:border-[40px] border-black/10 rounded-2xl transition-opacity group-hover:opacity-0"></div>
       </div>
       
