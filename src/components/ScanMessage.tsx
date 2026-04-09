@@ -58,6 +58,7 @@ export default function ScanMessage() {
 
   useEffect(() => {
     let html5QrCode: Html5Qrcode | null = null;
+    let isMounted = true;
 
     if (!showMessage && !scanned && !uid && !id) {
       html5QrCode = new Html5Qrcode("reader");
@@ -76,29 +77,46 @@ export default function ScanMessage() {
         onScanSuccess,
         onScanFailure
       ).then(() => {
-        setIsCameraReady(true);
+        if (isMounted) setIsCameraReady(true);
       }).catch(err => {
         console.error("Failed to start scanner:", err);
         // If back camera fails, try any camera
-        html5QrCode?.start(
-          { facingMode: "user" },
-          config,
-          onScanSuccess,
-          onScanFailure
-        ).then(() => {
-          setIsCameraReady(true);
-        }).catch(e => {
-          console.error("Failed to start any camera:", e);
-        });
+        if (isMounted) {
+          html5QrCode?.start(
+            { facingMode: "user" },
+            config,
+            onScanSuccess,
+            onScanFailure
+          ).then(() => {
+            if (isMounted) setIsCameraReady(true);
+          }).catch(e => {
+            console.error("Failed to start any camera:", e);
+          });
+        }
       });
     }
 
     return () => {
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().then(() => {
-          scannerRef.current?.clear();
-        }).catch(err => console.error("Failed to stop scanner", err));
+      isMounted = false;
+      const scanner = scannerRef.current;
+      if (scanner) {
+        if (scanner.isScanning) {
+          scanner.stop().then(() => {
+            try {
+              scanner.clear();
+            } catch (e) {
+              // Ignore clear errors during unmount
+            }
+          }).catch(err => console.error("Failed to stop scanner", err));
+        } else {
+          try {
+            scanner.clear();
+          } catch (e) {
+            // Ignore clear errors
+          }
+        }
       }
+      setIsCameraReady(false);
     };
   }, [showMessage, scanned, uid, id]);
 
@@ -161,11 +179,7 @@ export default function ScanMessage() {
             createdAt: data.createdAt?.toMillis() || Date.now(),
           });
           setShowMessage(true);
-          if (scannerRef.current && scannerRef.current.isScanning) {
-            scannerRef.current.stop().then(() => {
-              scannerRef.current?.clear();
-            }).catch(err => console.error("Failed to stop scanner", err));
-          }
+          // Scanner cleanup will be handled by the useEffect dependency change
         } else {
           alert('This message could not be found.');
           setScanned(false);
@@ -271,14 +285,13 @@ export default function ScanMessage() {
       </div>
 
       <div className="relative group">
-        <div id="reader" className="w-full rounded-2xl overflow-hidden border-2 border-pink-100 bg-gray-50 aspect-square sm:aspect-auto">
-          {!isCameraReady && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10 gap-3">
-              <Camera className="text-pink-300 animate-pulse" size={48} />
-              <p className="text-xs text-gray-400 font-medium">Starting camera...</p>
-            </div>
-          )}
-        </div>
+        <div id="reader" className="w-full rounded-2xl overflow-hidden border-2 border-pink-100 bg-gray-50 aspect-square sm:aspect-auto"></div>
+        {!isCameraReady && !showMessage && !scanned && !uid && !id && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 rounded-2xl z-10 gap-3">
+            <Camera className="text-pink-300 animate-pulse" size={48} />
+            <p className="text-xs text-gray-400 font-medium">Starting camera...</p>
+          </div>
+        )}
         <div className="absolute inset-0 pointer-events-none border-[20px] sm:border-[40px] border-black/10 rounded-2xl transition-opacity group-hover:opacity-0"></div>
       </div>
       
